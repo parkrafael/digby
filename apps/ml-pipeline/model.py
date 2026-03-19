@@ -14,8 +14,20 @@ class CLIPEmbedder:
 
         # skips gradient tracking
         with torch.no_grad():
-            features = self.model.encode_image(image_input)
+            embedding = self.model.encode_image(image_input)
         # normalizes embedding results
-        features = features / features.norm(dim=-1, keepdim=True)
+        embedding = embedding / embedding.norm(dim=-1, keepdim=True)
 
-        return features
+        return embedding
+
+    def embed_text(self, query: str):
+        # tokenizes query
+        query_input = clip.tokenize([query])
+
+        # skips gradient tracking
+        with torch.no_grad():
+            embedding = self.model.encode_text(query_input)
+        # normalizes embedding results
+        embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+
+        return embedding
