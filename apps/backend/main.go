@@ -1,37 +1,29 @@
 package main
 
 import (
-	"encoding/json"
+	"backend/db"
+	"backend/handlers"
+	"github.com/joho/godotenv"
+	"log"
 	"net/http"
 )
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("error loading .env file")
+	}
+
+	err = db.Connect()
+	if err != nil {
+		log.Fatal("failed to connect to database: ", err)
+	}
+	defer db.Close()
+
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /users", getUsers)
-	mux.HandleFunc("POST /users", createUser)
-	mux.HandleFunc("GET /users/{id}", getUserByID)
+	// Authentication routes
+	mux.HandleFunc("POST /auth/magic-link", handlers.SendMagicLink)
 
 	http.ListenAndServe(":8080", mux)
-}
-
-func getUsers(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "get all users"})
-}
-
-func createUser(w http.ResponseWriter, r *http.Request) {
-	var body map[string]any
-	json.NewDecoder(r.Body).Decode(&body)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(body)
-}
-
-func getUserByID(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id") // grab path param
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"id": id})
 }
