@@ -5,6 +5,13 @@ CREATE TABLE users (
     agent_id        TEXT UNIQUE NOT NULL
 );
 
+CREATE TABLE magic_links (
+    token           TEXT PRIMARY KEY,
+    email           TEXT REFERENCES users(email),
+    expires_at      TIMESTAMPTZ NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+
 CREATE TABLE images (
     image_id        TEXT PRIMARY KEY,
     agent_id        TEXT REFERENCES users(agent_id),
