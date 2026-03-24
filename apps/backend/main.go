@@ -24,6 +24,7 @@ func main() {
 
 	// Authentication routes
 	mux.HandleFunc("POST /auth/magic-link", handlers.SendMagicLink)
+	mux.HandleFunc("POST /auth/verify", handlers.VerifyToken)
 
 	http.ListenAndServe(":8080", mux)
 }
