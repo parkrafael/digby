@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"backend/db"
+	"backend/models"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pgvector/pgvector-go"
@@ -120,4 +121,79 @@ func EmbedImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func SearchImages(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		AgentID string `json:"agent_id"`
+		Query   string `json:"query"`
+	}
+	err := json.NewDecoder(r.Body).Decode(&body)
+	if err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// call clip service with text query
+	queryBody, _ := json.Marshal(map[string]string{"query": body.Query})
+	resp, err := http.Post(os.Getenv("CLIP_SERVICE_URL")+"/embed/text", "application/json", bytes.NewReader(queryBody))
+	if err != nil {
+		http.Error(w, "clip service error", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, "clip service error", http.StatusInternalServerError)
+		return
+	}
+
+	var result struct {
+		Embedding []float32 `json:"embedding"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	if err != nil {
+		http.Error(w, "failed to decode embedding", http.StatusInternalServerError)
+		return
+	}
+
+	// query images table ranked by cosine similarity
+	rows, err := db.DB.Query(
+		r.Context(),
+		`SELECT image_id, file_name, file_type, file_timestamp, tags
+		 FROM images
+		 WHERE agent_id = $1 AND embedding IS NOT NULL
+		 ORDER BY embedding <=> $2
+		 LIMIT 50`,
+		body.AgentID,
+		pgvector.NewVector(result.Embedding),
+	)
+	if err != nil {
+		pgErr, ok := errors.AsType[*pgconn.PgError](err)
+		if ok {
+			http.Error(w, "database error: "+pgErr.Code, http.StatusInternalServerError)
+			return
+		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var results []models.Image
+	for rows.Next() {
+		var img models.Image
+		err := rows.Scan(
+			&img.ImageID,
+			&img.FileName,
+			&img.FileType,
+			&img.FileTimestamp,
+			&img.Tags,
+		)
+		if err != nil {
+			http.Error(w, "failed to scan row", http.StatusInternalServerError)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
 }
