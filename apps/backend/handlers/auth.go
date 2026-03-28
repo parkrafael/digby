@@ -1,19 +1,26 @@
 package handlers
 
 import (
-	"backend/db"
-	"backend/models"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
+	"time"
+
+	"backend/db"
+	"backend/models"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/resend/resend-go/v3"
-	"net/http"
-	"os"
-	"time"
+)
+
+const (
+	magicLinkExpiry = 15 * time.Minute
+	jwtExpiry       = 24 * time.Hour
 )
 
 func SendMagicLink(w http.ResponseWriter, r *http.Request) {
@@ -28,26 +35,23 @@ func SendMagicLink(w http.ResponseWriter, r *http.Request) {
 	// create new user
 	_, err = db.DB.Exec(
 		r.Context(),
-		"INSERT INTO users (email, agent_id) VALUES ($1, $2)",
+		"INSERT INTO users (email, agent_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
 		user.Email,
 		user.AgentID,
 	)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		// if err is not due to existing email (pk) or agent_id (unique)
-		if errors.As(err, &pgErr) && pgErr.Code != "23505" {
+		pgErr, ok := errors.AsType[*pgconn.PgError](err)
+		if ok {
 			http.Error(w, "database error: "+pgErr.Code, http.StatusInternalServerError)
 			return
-			// if err is not a postgres error
-		} else if !errors.As(err, &pgErr) {
-			http.Error(w, "database error: "+err.Error(), http.StatusInternalServerError)
-			return
 		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
 
 	// generate and store magic link token
 	token := uuid.New().String()
-	expiresAt := time.Now().UTC().Add(time.Minute * 15)
+	expiresAt := time.Now().UTC().Add(magicLinkExpiry)
 	_, err = db.DB.Exec(
 		r.Context(),
 		"INSERT INTO magic_links (token, email, expires_at) VALUES ($1, $2, $3)",
@@ -56,11 +60,12 @@ func SendMagicLink(w http.ResponseWriter, r *http.Request) {
 		expiresAt,
 	)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
+		pgErr, ok := errors.AsType[*pgconn.PgError](err)
+		if ok {
 			http.Error(w, "database error: "+pgErr.Code, http.StatusInternalServerError)
 			return
 		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -73,13 +78,13 @@ func SendMagicLink(w http.ResponseWriter, r *http.Request) {
 		Html: fmt.Sprintf(`
         <p>Hello,</p>
         <p>Click the link below to sign in to Digby. Link expires in 15 minutes.</p>
-        <a href="http://localhost:5173/auth/verify?token=%s">Sign in to Digby</a>
+        <a href="%s/auth/verify?token=%s">Sign in to Digby</a>
         <p>If you didn't request this email, you can safely ignore it.</p>
-    `, token),
+    `, os.Getenv("FRONTEND_URL"), token),
 	}
 	_, err = client.Emails.Send(&params)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to send email: %s", err), http.StatusInternalServerError)
+		http.Error(w, "failed to send email", http.StatusInternalServerError)
 		return
 	}
 
@@ -106,10 +111,10 @@ func VerifyToken(w http.ResponseWriter, r *http.Request) {
 	// retrieve row if token exists
 	err = db.DB.QueryRow(
 		r.Context(),
-		"SELECT * FROM magic_links WHERE token = $1",
+		"SELECT token, email, expires_at, created_at FROM magic_links WHERE token = $1",
 		body.Token,
 	).Scan(&magicLink.Token, &magicLink.Email, &magicLink.ExpiresAt, &magicLink.CreatedAt)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
@@ -131,21 +136,22 @@ func VerifyToken(w http.ResponseWriter, r *http.Request) {
 		body.Token,
 	)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
+		pgErr, ok := errors.AsType[*pgconn.PgError](err)
+		if ok {
 			http.Error(w, "database error: "+pgErr.Code, http.StatusInternalServerError)
 			return
 		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	// generate jwt
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"email": magicLink.Email,
-		"exp":   time.Now().UTC().Add(time.Hour * 24).Unix(),
+		"exp":   time.Now().UTC().Add(jwtExpiry).Unix(),
 	}).SignedString([]byte(os.Getenv("JWT_SECRET_KEY")))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to generate token: %v", err), http.StatusInternalServerError)
+		http.Error(w, "failed to generate token", http.StatusInternalServerError)
 		return
 	}
 

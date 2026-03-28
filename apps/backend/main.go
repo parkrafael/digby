@@ -1,17 +1,19 @@
 package main
 
 import (
-	"backend/db"
-	"backend/handlers"
-	"github.com/joho/godotenv"
 	"log"
 	"net/http"
+
+	"backend/db"
+	"backend/handlers"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("error loading .env file")
+		log.Fatal("Error loading .env file")
 	}
 
 	err = db.Connect()
@@ -25,6 +27,9 @@ func main() {
 	// Authentication routes
 	mux.HandleFunc("POST /auth/magic-link", handlers.SendMagicLink)
 	mux.HandleFunc("POST /auth/verify", handlers.VerifyToken)
+
+	// Agent
+	mux.HandleFunc("GET /agent/registered", handlers.IsAgentRegistered)
 
 	http.ListenAndServe(":8080", mux)
 }

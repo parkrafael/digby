@@ -2,8 +2,9 @@ package db
 
 import (
 	"context"
-	"github.com/jackc/pgx/v5"
 	"os"
+
+	"github.com/jackc/pgx/v5"
 )
 
 var DB *pgx.Conn
