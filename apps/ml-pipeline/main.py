@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
+from pydantic import BaseModel
 from PIL import Image
 from model import CLIPEmbedder
 import io
@@ -18,10 +19,12 @@ async def embed_image(image: UploadFile = File(...)):
 
     return {"embedding": embedding}
 
+class TextRequest(BaseModel):
+    query: str
 
 @app.post("/embed/text")
-async def embed_text(query: str):
+async def embed_text(body: TextRequest):
     # create text embedding
-    embedding = embedder.embed_text(query)[0].tolist()
+    embedding = embedder.embed_text(body.query)[0].tolist()
 
     return {"embedding": embedding}
