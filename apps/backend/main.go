@@ -28,12 +28,16 @@ func main() {
 	mux.HandleFunc("POST /auth/magic-link", handlers.SendMagicLink)
 	mux.HandleFunc("POST /auth/verify", handlers.VerifyToken)
 
-	// CLIP embedding
+	// Images
 	mux.HandleFunc("POST /embed/image", handlers.EmbedImage)
+	mux.HandleFunc("GET /images/{image_id}", handlers.GetImage)
+
+	// Search
 	mux.HandleFunc("POST /embed/search", handlers.SearchImages)
 
 	// Agent
 	mux.HandleFunc("GET /agent/registered", handlers.IsAgentRegistered)
+	mux.HandleFunc("GET /agent/tunnel", handlers.AgentTunnel)
 
 	http.ListenAndServe(":8080", mux)
 }
